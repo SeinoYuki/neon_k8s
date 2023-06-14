@@ -1,0 +1,89 @@
+#--- PageServer StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pageserver
+  labels:
+    app: pageserver
+spec:
+  selector:
+    matchLabels:
+      app: pageserver
+  serviceName: "pageserver"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: pageserver
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - args:
+            - if [ ! -f /data/.neon/pageserver.toml ];
+              then /usr/local/bin/pageserver -D /data/.neon/ --init -c "id=1234" -c "broker_endpoint=$BROKER_ENDPOINT" -c "pg_distrib_dir='/usr/local/'" -c "listen_pg_addr='0.0.0.0:6400'" -c "listen_http_addr='0.0.0.0:9898'";
+              fi;
+              /usr/local/bin/pageserver -D /data/.neon/ -c "broker_endpoint=$BROKER_ENDPOINT" -c "listen_pg_addr='0.0.0.0:6400'" -c "listen_http_addr='0.0.0.0:9898'" -c "remote_storage={endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/pageserver/'}"
+          command:
+            - /bin/sh
+            - -c
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: minio
+            - name: AWS_SECRET_ACCESS_KEY
+              value: password
+            - name: BROKER_ENDPOINT
+              value: "'http://storage-broker:50051'"
+          image: neondatabase/neon:3000
+          name: pageserver
+          ports:
+            - containerPort: 6400
+              protocol: TCP
+            - containerPort: 9898
+              protocol: TCP
+          volumeMounts:
+            - name: pageserver-claim0
+              mountPath: /data/.neon
+      initContainers:
+        - name: init-storage-broker
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup storage-broker.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for storage-broker; sleep 2; done"]
+            #- name: init-etcd2
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd2.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd2; sleep 2; done"]
+            #- name: init-etcd3
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd3.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd3; sleep 2; done"]
+        - name: init-minio
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup minio.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for minio; sleep 2; done"]
+      securityContext:
+        fsGroup: 1000
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: pageserver-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+#--- PageServer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: pageserver
+  labels:
+    app: pageserver
+spec:
+  ports:
+    - name: "6400"
+      port: 6400
+      protocol: TCP
+      targetPort: 6400
+    - name: "9898"
+      port: 9898
+      protocol: TCP
+      targetPort: 9898
+  selector:
+    app: pageserver

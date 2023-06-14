@@ -1,0 +1,80 @@
+#--- Compute StatefulSet 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: compute
+  labels:
+    app: compute
+spec:
+  selector:
+    matchLabels:
+      app: compute
+  serviceName: "compute"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: compute
+    spec:
+      securityContext:
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 10
+      containers:
+        - env:
+            - name: PG_VERSION
+              value: "15"
+          command:
+            - /shell/compute.sh
+          image: compute-custom:3000
+          imagePullPolicy: IfNotPresent
+          name: compute
+          ports:
+            - containerPort: 55433
+              protocol: TCP
+            - containerPort: 3080
+              protocol: TCP
+          volumeMounts:
+            - name: compute-claim0
+              mountPath: /db/postgres
+      initContainers:
+        - name: init-safekeeper1
+          image: curlimages/curl
+          command: ['sh', '-c', "until curl safekeeper1:7676/v1/status; do echo waiting for safekeeper1; sleep 2; done"]
+        - name: init-safekeeper2
+          image: curlimages/curl
+          command: ['sh', '-c', "until curl safekeeper2:7676/v1/status; do echo waiting for safekeeper2; sleep 2; done"]
+        - name: init-safekeeper3
+          image: curlimages/curl
+          command: ['sh', '-c', "until curl safekeeper3:7676/v1/status; do echo waiting for safekeeper3; sleep 2; done"]
+        - name: init-pageserver
+          image: curlimages/curl
+          command: ['sh', '-c', "until curl pageserver:9898/v1/status; do echo waiting for pageserver; sleep 2; done"] 
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: compute-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+             storage: 500Gi
+---
+#--- Compute Service 
+apiVersion: v1
+kind: Service
+metadata:
+  name: compute
+  labels:
+    app: compute
+spec:
+  ports:
+    - name: "55433"
+      port: 55433
+      protocol: TCP
+      targetPort: 55433
+    - name: "3080"
+      port: 3080
+      protocol: TCP
+      targetPort: 3080
+  selector:
+    app: compute

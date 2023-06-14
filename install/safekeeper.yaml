@@ -1,0 +1,283 @@
+#--- SafeKeeper1 StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: safekeeper1
+  labels:
+    app: safekeeper1
+    safekeeper_node: safekeeper1
+spec:
+  selector:
+    matchLabels:
+      app: safekeeper1
+      safekeeper_node: safekeeper1
+  serviceName: "safekeeper1"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: safekeeper1
+        safekeeper_node: safekeeper1
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: safekeeper1
+          image: neondatabase/neon:3000
+          args:
+            - safekeeper --listen-pg=$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$SAFEKEEPER_ID --broker-endpoint=$BROKER_ENDPOINT -D /data --remote-storage="{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}"
+          command:
+            - /bin/bash
+            - -c
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: "minio"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "password"
+                #- name: BROKER_ENDPOINT
+                #value: "http://etcd1:2379,http://etcd2:2379,http://etcd3:2379"
+            - name: BROKER_ENDPOINT
+              value: "http://storage-broker:50051"
+            - name: SAFEKEEPER_ADVERTISE_URL
+              value: "safekeeper1-0:5454"
+            - name: SAFEKEEPER_ID
+              value: "1"
+          ports:
+            - containerPort: 5454
+              protocol: TCP
+            - containerPort: 7676
+              protocol: TCP
+          volumeMounts:
+            - name: safekeeper1-claim0
+              mountPath: /data
+      initContainers:
+        - name: init-storage-broker
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup storage-broker.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for storage-broker; sleep 2; done"]
+            #- name: init-etcd2
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd2.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd2; sleep 2; done"]
+            #- name: init-etcd3
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd3.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd3; sleep 2; done"]
+        - name: init-minio
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup minio.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for minio; sleep 2; done"]
+      securityContext:
+        fsGroup: 1000
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: safekeeper1-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+#--- SafeKeeper1 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: safekeeper1
+  labels:
+    safekeeper_node: safekeeper1
+spec:
+  ports:
+    - name: "5454"
+      port: 5454
+      protocol: TCP
+      targetPort: 5454
+    - name: "7676"
+      port: 7676
+      protocol: TCP
+      targetPort: 7676
+  selector:
+    safekeeper_node: safekeeper1
+---
+#--- SafeKeeper2 StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: safekeeper2
+  labels:
+    app: safekeeper2
+    safekeeper_node: safekeeper2
+spec:
+  selector:
+    matchLabels:
+      app: safekeeper2
+      safekeeper_node: safekeeper2
+  serviceName: "safekeeper2"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: safekeeper2
+        safekeeper_node: safekeeper2
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: safekeeper2
+          image: neondatabase/neon:3000
+          args:
+            - safekeeper --listen-pg=$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$SAFEKEEPER_ID --broker-endpoint=$BROKER_ENDPOINT -D /data --remote-storage="{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}"
+          command:
+            - /bin/bash
+            - -c
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: "minio"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "password"
+            - name: BROKER_ENDPOINT
+              value: "http://storage-broker:50051"
+            - name: SAFEKEEPER_ADVERTISE_URL
+              value: "safekeeper2-0:5454"
+            - name: SAFEKEEPER_ID
+              value: "2"
+          ports:
+            - containerPort: 5454
+              protocol: TCP
+            - containerPort: 7676
+              protocol: TCP
+          volumeMounts:
+            - name: safekeeper2-claim0
+              mountPath: /data
+      initContainers:
+        - name: init-storage-broker
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup storage-broker.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for storage-broker; sleep 2; done"]
+            #- name: init-etcd2
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd2.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd2; sleep 2; done"]
+            #- name: init-etcd3
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd3.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd3; sleep 2; done"]
+        - name: init-minio
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup minio.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for minio; sleep 2; done"]
+      securityContext:
+        fsGroup: 1000
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: safekeeper2-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+#--- SafeKeeper2 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: safekeeper2
+  labels:
+    safekeeper_node: safekeeper2
+spec:
+  ports:
+    - name: "5454"
+      port: 5454
+      protocol: TCP
+      targetPort: 5454
+    - name: "7676"
+      port: 7676
+      protocol: TCP
+      targetPort: 7676
+  selector:
+    safekeeper_node: safekeeper2
+---
+#--- SafeKeeper3 StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: safekeeper3
+  labels:
+    app: safekeeper3
+    safekeeper_node: safekeeper3
+spec:
+  selector:
+    matchLabels:
+      app: safekeeper3
+      safekeeper_node: safekeeper3
+  serviceName: "safekeeper3"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: safekeeper3
+        safekeeper_node: safekeeper3
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: safekeeper3
+          image: neondatabase/neon:3000
+          args:
+            - safekeeper --listen-pg=$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$SAFEKEEPER_ID --broker-endpoint=$BROKER_ENDPOINT -D /data --remote-storage="{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}"
+          command:
+            - /bin/bash
+            - -c
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              value: "minio"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "password"
+            - name: BROKER_ENDPOINT
+              value: "http://storage-broker:50051"
+            - name: SAFEKEEPER_ADVERTISE_URL
+              value: "safekeeper3-0:5454"
+            - name: SAFEKEEPER_ID
+              value: "3"
+          ports:
+            - containerPort: 5454
+              protocol: TCP
+            - containerPort: 7676
+              protocol: TCP
+          volumeMounts:
+            - name: safekeeper3-claim0
+              mountPath: /data
+      initContainers:
+        - name: init-storage-broker
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup storage-broker.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for storage-broker; sleep 2; done"]
+            #- name: init-etcd2
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd2.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd2; sleep 2; done"]
+            #- name: init-etcd3
+            #image: busybox:1.28
+            #command: ['sh', '-c', "until nslookup etcd3.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for etcd3; sleep 2; done"]
+        - name: init-minio
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup minio.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for minio; sleep 2; done"]
+      securityContext:
+        fsGroup: 1000
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: safekeeper3-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+#--- SafeKeeper3 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: safekeeper3
+  labels:
+    safekeeper_node: safekeeper3
+spec:
+  ports:
+    - name: "5454"
+      port: 5454
+      protocol: TCP
+      targetPort: 5454
+    - name: "7676"
+      port: 7676
+      protocol: TCP
+      targetPort: 7676
+  selector:
+    safekeeper_node: safekeeper3

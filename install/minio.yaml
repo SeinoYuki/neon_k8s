@@ -1,0 +1,95 @@
+#--- MinIO StatefulSet 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  serviceName: "minio"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - args:
+            - server
+            - /data
+            - --address
+            - :9000
+            - --console-address
+            - :9001
+          env:
+            - name: MINIO_ROOT_PASSWORD
+              value: password
+            - name: MINIO_ROOT_USER
+              value: minio
+          image: quay.io/minio/minio:RELEASE.2022-10-20T00-55-09Z
+          name: minio
+          ports:
+            - containerPort: 9000
+              protocol: TCP
+            - containerPort: 9001
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - name: minio-claim0
+              mountPath: /data
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-claim0
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+#--- MinIO Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  ports:
+    - name: "9000"
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+    - name: "9001"
+      port: 9001
+      protocol: TCP
+      targetPort: 9001
+  selector:
+    app: minio
+---
+#--- MinIO CreateBucket
+apiVersion: v1
+kind: Pod
+metadata:
+  name: minio-create-buckets
+  labels:
+    app: minio-create-buckets
+spec:
+  containers:
+    - args:
+        - until (/usr/bin/mc alias set minio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD) do echo 'Waiting to start minio...' && sleep 1; done; /usr/bin/mc mb minio/neon --region=eu-north-1; /usr/bin/mc admin info minio; exit 0;
+      command:
+        - /bin/sh
+        - -c
+      env:
+        - name: MINIO_ROOT_PASSWORD
+          value: password
+        - name: MINIO_ROOT_USER
+          value: minio
+      image: minio/mc
+      name: minio-create-buckets
+  restartPolicy: Never
